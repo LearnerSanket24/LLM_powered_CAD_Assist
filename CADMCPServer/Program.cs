@@ -18,6 +18,7 @@ builder.Services.AddSingleton<IConversationStore, InMemoryConversationStore>();
 builder.Services.AddHttpClient<ILlmClient, FunctionCallingLlmClient>();
 builder.Services.AddHttpClient<IMcpClient, HttpMcpClient>();
 builder.Services.AddSingleton<IToolPlanner, ToolPlanner>();
+builder.Services.AddSingleton<ISmartCadAnalyzer, SmartCadAnalyzer>();
 builder.Services.AddSingleton<IAssistantOrchestrator, AssistantOrchestrator>();
 
 var app = builder.Build();
@@ -31,7 +32,7 @@ if (app.Environment.IsDevelopment())
 app.MapGet("/", () => Results.Ok(new
 {
     service = "CADMCPServer",
-    phase = "phase2-sanket-llm-layer",
+    phase = "phase2-llm-smartcad-integration",
     status = "running"
 }));
 

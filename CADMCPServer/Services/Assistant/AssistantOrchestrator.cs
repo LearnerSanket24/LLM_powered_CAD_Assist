@@ -13,17 +13,20 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
     private readonly IToolPlanner _toolPlanner;
     private readonly IMcpClient _mcpClient;
     private readonly IConversationStore _conversationStore;
+    private readonly ISmartCadAnalyzer _smartCadAnalyzer;
     private readonly ILogger<AssistantOrchestrator> _logger;
 
     public AssistantOrchestrator(
         IToolPlanner toolPlanner,
         IMcpClient mcpClient,
         IConversationStore conversationStore,
+        ISmartCadAnalyzer smartCadAnalyzer,
         ILogger<AssistantOrchestrator> logger)
     {
         _toolPlanner = toolPlanner;
         _mcpClient = mcpClient;
         _conversationStore = conversationStore;
+        _smartCadAnalyzer = smartCadAnalyzer;
         _logger = logger;
     }
 
@@ -33,13 +36,29 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
         var input = request.UserInput?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(input))
         {
+            var analysis = new SmartCadAnalysis
+            {
+                ComponentType = string.IsNullOrWhiteSpace(request.ComponentType) ? "generic" : request.ComponentType.Trim().ToLowerInvariant(),
+                Status = "FAIL",
+                Recommendations = new List<string>
+                {
+                    "1. Provide a non-empty natural language command in userInput."
+                },
+                AssumptionsUsed = new List<string>
+                {
+                    "userInput was empty."
+                }
+            };
+
             return new AnalyzeResponse
             {
                 Status = "FAIL",
                 SessionId = context.SessionId,
                 AttemptsUsed = 0,
-                Message = "UserInput is required.",
-                Context = Snapshot(context)
+                Message = _smartCadAnalyzer.Format(analysis),
+                Assumptions = analysis.AssumptionsUsed,
+                Context = Snapshot(context),
+                Analysis = analysis
             };
         }
 
@@ -128,7 +147,7 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
                 context.UpdatedAt = DateTimeOffset.UtcNow;
                 _conversationStore.Save(context);
 
-                return BuildFailureResponse(context, assumptions, plan, consolidatedTrace, attemptsUsed, lastError);
+                return BuildFailureResponse(request, context, assumptions, plan, consolidatedTrace, attemptsUsed, lastError, _smartCadAnalyzer);
             }
 
             consolidatedTrace.AddRange(attemptTrace);
@@ -137,7 +156,7 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
             {
                 context.UpdatedAt = DateTimeOffset.UtcNow;
                 _conversationStore.Save(context);
-                return BuildSuccessResponse(context, assumptions, plan, consolidatedTrace, attemptsUsed);
+                return BuildSuccessResponse(request, context, assumptions, plan, consolidatedTrace, attemptsUsed, _smartCadAnalyzer);
             }
 
             if (lastError is not null)
@@ -156,6 +175,7 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
         _conversationStore.Save(context);
 
         return BuildFailureResponse(
+            request,
             context,
             assumptions,
             plan,
@@ -166,24 +186,26 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
                 Code = "retry_exhausted",
                 Message = "Self-correction loop exhausted all retries.",
                 Recoverable = false
-            });
+            },
+            _smartCadAnalyzer);
     }
 
     private static AnalyzeResponse BuildSuccessResponse(
+        AnalyzeRequest request,
         ConversationContext context,
         IEnumerable<string> assumptions,
         ToolPlan plan,
         List<ToolExecutionRecord> executionTrace,
-        int attemptsUsed)
+        int attemptsUsed,
+        ISmartCadAnalyzer smartCadAnalyzer)
     {
         var distinctAssumptions = assumptions.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
-        var message = distinctAssumptions.Count == 0
-            ? "Execution completed successfully."
-            : "Execution completed with engineering assumptions. Review assumptions list.";
+        var analysis = smartCadAnalyzer.Analyze(request, context, distinctAssumptions);
+        var message = smartCadAnalyzer.Format(analysis);
 
         return new AnalyzeResponse
         {
-            Status = "PASS",
+            Status = analysis.Status,
             SessionId = context.SessionId,
             AttemptsUsed = attemptsUsed,
             ModelId = context.LastModelId,
@@ -191,26 +213,35 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
             Assumptions = distinctAssumptions,
             PlannedTools = plan.ToolCalls,
             ExecutionTrace = executionTrace,
-            Context = Snapshot(context)
+            Context = Snapshot(context),
+            Analysis = analysis
         };
     }
 
     private static AnalyzeResponse BuildFailureResponse(
+        AnalyzeRequest request,
         ConversationContext context,
         IEnumerable<string> assumptions,
         ToolPlan plan,
         List<ToolExecutionRecord> executionTrace,
         int attemptsUsed,
-        McpError error)
+        McpError error,
+        ISmartCadAnalyzer smartCadAnalyzer)
     {
+        var distinctAssumptions = assumptions.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList();
+        var analysis = smartCadAnalyzer.Analyze(request, context, distinctAssumptions);
+        analysis.Status = "FAIL";
+        analysis.Recommendations.Insert(0, "1. Resolve CAD execution failure before finalizing manufacturing decisions.");
+        RenumberRecommendations(analysis.Recommendations);
+
         return new AnalyzeResponse
         {
             Status = "FAIL",
             SessionId = context.SessionId,
             AttemptsUsed = attemptsUsed,
             ModelId = context.LastModelId,
-            Message = error.Message,
-            Assumptions = assumptions.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct().ToList(),
+            Message = smartCadAnalyzer.Format(analysis),
+            Assumptions = distinctAssumptions,
             PlannedTools = plan.ToolCalls,
             ExecutionTrace = executionTrace,
             LastError = new JsonObject
@@ -220,8 +251,23 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
                 ["recoverable"] = error.Recoverable,
                 ["details"] = error.Details
             },
-            Context = Snapshot(context)
+            Context = Snapshot(context),
+            Analysis = analysis
         };
+    }
+
+    private static void RenumberRecommendations(List<string> recommendations)
+    {
+        for (var i = 0; i < recommendations.Count; i++)
+        {
+            var current = recommendations[i] ?? string.Empty;
+            var dotIndex = current.IndexOf('.');
+            var cleaned = dotIndex > -1 && dotIndex + 1 < current.Length
+                ? current[(dotIndex + 1)..].TrimStart()
+                : current;
+
+            recommendations[i] = $"{i + 1}. {cleaned}";
+        }
     }
 
     private static PlannedToolCall CloneCall(PlannedToolCall call)

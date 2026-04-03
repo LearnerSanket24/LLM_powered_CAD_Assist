@@ -1,90 +1,84 @@
-# CADMCPServer - Sanket LLM Layer (Phase 2)
+# CADMCPServer - Phase 2 Integration
 
-This implementation delivers Sanket's scope on top of the Phase 1 backend scaffold.
+This backend now includes Sanket LLM orchestration and Shubham Smart CAD analysis under the same endpoint.
 
-## Delivered Scope
+## Delivered Phase 2 Scope
 
 - OpenAI and Together AI function-calling integration.
-- System prompt for parameter extraction and tool planning.
-- Ordered MCP tool planner with engineering defaults and explicit assumptions.
-- Self-correction loop for recoverable Eyeshot-style errors with max 3 attempts.
-- Session context memory for multi-turn updates.
-- Assumption reporting in every response.
-- Stable API contract for `POST /assistant/analyze`.
+- Ordered MCP planning with assumptions and automatic mass-property queries.
+- Self-correction retry loop for recoverable CAD execution errors (max 3 attempts).
+- Session memory for multi-turn instructions.
+- Smart CAD analysis for `gear`, `shaft`, `bearing`, and generic fallback for unknown components.
+- Output structure includes `STATUS -> Metrics -> numbered recommendations -> assumptions_used`.
 
 ## API Contract
 
 ### POST /assistant/analyze
 
-Request:
+Request payload (absolute contract field names for geometry and load):
 
 ```json
 {
   "sessionId": "session-001",
-  "userInput": "Create a gear with 20 teeth, module 2, face width 20 mm",
-  "modelId": null,
-  "overrides": null
-}
-```
-
-Response (success shape):
-
-```json
-{
-  "status": "PASS",
-  "sessionId": "session-001",
-  "attemptsUsed": 1,
-  "modelId": "mdl-...",
-  "message": "Execution completed with engineering assumptions. Review assumptions list.",
-  "assumptions": [
-    "Missing face width. Assumed face_width=20 mm."
-  ],
-  "plannedTools": [
-    { "toolName": "create_gear", "arguments": { "teeth": 20, "module": 2, "face_width": 20, "pressure_angle": 20 } },
-    { "toolName": "get_volume", "arguments": { "model_id": "$LATEST_MODEL_ID" } },
-    { "toolName": "get_mass", "arguments": { "model_id": "$LATEST_MODEL_ID" } },
-    { "toolName": "get_surface_area", "arguments": { "model_id": "$LATEST_MODEL_ID" } }
-  ],
-  "executionTrace": [],
-  "lastError": null,
-  "context": {
-    "lastModelId": "mdl-...",
-    "lastComponentType": "gear",
-    "lastParameters": {
-      "teeth": 20,
-      "module": 2,
-      "face_width": 20,
-      "pressure_angle": 20
-    }
+  "userInput": "Create a gear with 24 teeth, module 2.5, face width 22 mm",
+  "component_type": "gear",
+  "material": "Mild Steel",
+  "geometry_input": {
+    "module_mm": 2.5,
+    "teeth_count": 24,
+    "face_width_mm": 22,
+    "wall_thickness_mm": 2.5,
+    "draft_angle_deg": 1.5,
+    "has_undercut": false,
+    "thread_pitch_mm": 1.5,
+    "projected_area_mm2": 800
+  },
+  "load_input": {
+    "tangential_force_n": 1200,
+    "radial_force_n": 400,
+    "axial_force_n": 100,
+    "torque_nmm": 52000,
+    "applied_load_n": 1500
   }
 }
 ```
 
-## Configuration
+Response excerpt:
 
-`appsettings.json`
+```json
+{
+  "status": "PASS",
+  "message": "STATUS: PASS\nMetrics:\n- bending_stress_mpa: 80.12\n...\nRecommendations:\n1. ...\nassumptions_used:\n- ...",
+  "analysis": {
+    "component_type": "gear",
+    "status": "PASS",
+    "metrics": {
+      "bending_stress_mpa": 80.12,
+      "lewis_form_factor_y": 0.343,
+      "safety_factor": 3.12,
+      "yield_strength_mpa": 250
+    },
+    "recommendations": [
+      "1. Design is within configured stress and DFM thresholds."
+    ],
+    "assumptions_used": []
+  }
+}
+```
+
+## Smart CAD Rules
+
+- Gear: Lewis bending stress and safety factor.
+- Shaft: torsional stress and equivalent stress based safety factor.
+- Bearing: projected contact pressure and safety factor.
+- Unknown component: generic projected-load model (accepted by design).
+- DFM checks: wall thickness, draft angle, undercut, thread pitch feasibility.
+
+## Configuration
 
 - `Llm.Provider`: `none` | `openai` | `together`
 - `Llm.OpenAiApiKey`
 - `Llm.TogetherApiKey`
 - `Mcp.BaseUrl`
 - `Mcp.ToolRoute` (default `/mcp/tool`)
-- `Mcp.UseMockResponses` (`true` for early frontend/LLM integration)
-
-## Self-Correction Behavior
-
-- For recoverable CAD errors (for example invalid geometry constraints), planner retries up to 3 attempts.
-- On retry, the plan is regenerated via LLM if available, otherwise deterministic repair rules adjust risky parameters.
-- Failure after 3 attempts returns `status=FAIL` with structured `lastError` and full `executionTrace`.
-
-## Multi-turn Context Example
-
-1) User: `Create gear with 24 teeth module 2`
-2) User: `Now increase module to 2.5`
-
-The second request reuses `sessionId` and applies `modify_dim` against the last model in session state.
-
-## Notes
-
-- .NET SDK was not available in this machine during implementation, so build/run could not be executed here.
-- Static diagnostics in editor report no code errors.
+- `Mcp.UseMockResponses`
