@@ -7,8 +7,7 @@ namespace CADMCPServer.Services.Planning;
 
 public sealed class ToolPlanner : IToolPlanner
 {
-    private const string PlannerSystemPrompt = """
-You are a CAD MCP planning agent.
+    private const string PlannerSystemPrompt = @"You are a CAD MCP planning agent.
 Your task is to convert plain-English CAD requests into ordered MCP tool calls.
 
 Rules:
@@ -17,8 +16,7 @@ Rules:
 3) If user omits required dimensions, choose sane engineering defaults and list each as an assumption.
 4) If request modifies existing model, include model_id when available from context.
 5) After any creation call (create_gear/create_shaft/create_bearing), include get_volume, get_mass, get_surface_area.
-6) Return only function arguments for plan_cad_tools.
-""";
+6) Return only function arguments for plan_cad_tools.";
 
     private readonly ILlmClient _llmClient;
     private readonly ILogger<ToolPlanner> _logger;
@@ -36,13 +34,11 @@ Rules:
         CancellationToken cancellationToken)
     {
         var contextSummary = BuildContextSummary(context);
-        var llmPrompt = $"""
-User input:
-{userInput}
+        var llmPrompt = $@"User input:
+    {userInput}
 
-Conversation context:
-{contextSummary}
-""";
+    Conversation context:
+    {contextSummary}";
 
         var llmPlan = await _llmClient.TryBuildPlanAsync(PlannerSystemPrompt, llmPrompt, cancellationToken);
         if (llmPlan is not null)
@@ -68,21 +64,19 @@ Conversation context:
         var previousJson = JsonSerializer.Serialize(previousPlan);
         var errorJson = JsonSerializer.Serialize(error);
 
-        var llmPrompt = $"""
-Original user input:
-{userInput}
+        var llmPrompt = $@"Original user input:
+    {userInput}
 
-Previous tool plan:
-{previousJson}
+    Previous tool plan:
+    {previousJson}
 
-Execution error:
-{errorJson}
+    Execution error:
+    {errorJson}
 
-Retry attempt:
-{attemptNumber}
+    Retry attempt:
+    {attemptNumber}
 
-Build a safer revised plan.
-""";
+    Build a safer revised plan.";
 
         var llmPlan = await _llmClient.TryBuildPlanAsync(PlannerSystemPrompt, llmPrompt, cancellationToken);
         if (llmPlan is not null)
@@ -347,10 +341,14 @@ Build a safer revised plan.
     {
         var teeth = ExtractInt(input, @"([0-9]+)\s*(?:teeth|tooth)") ?? 20;
         var module = ExtractDouble(input, @"module\s*(?:to|=)?\s*([0-9]*\.?[0-9]+)") ?? 2.0;
+        var pressureAngle = ExtractDouble(input, @"pressure\s*angle\s*(?:to|=)?\s*([0-9]*\.?[0-9]+)") ?? 20.0;
         var faceWidth =
             ExtractDouble(input, @"face\s*width\s*(?:to|=)?\s*([0-9]*\.?[0-9]+)")
             ?? ExtractDouble(input, @"width\s*(?:to|=)?\s*([0-9]*\.?[0-9]+)")
             ?? 20.0;
+        var boreDia =
+            ExtractDouble(input, @"bore\s*(?:dia|diameter)?\s*(?:to|=)?\s*([0-9]*\.?[0-9]+)")
+            ?? Math.Max(1.0, (teeth * module) * 0.2);
 
         if (!RegexIsMatch(input, @"([0-9]+)\s*(?:teeth|tooth)"))
         {
@@ -367,6 +365,11 @@ Build a safer revised plan.
             assumptions.Add("Missing face width. Assumed face_width=20 mm.");
         }
 
+        if (!RegexIsMatch(input, @"bore\s*(?:dia|diameter)?\s*(?:to|=)?\s*([0-9]*\.?[0-9]+)"))
+        {
+            assumptions.Add($"Missing bore diameter. Assumed bore_dia={Math.Round(boreDia, 2)} mm.");
+        }
+
         return new PlannedToolCall
         {
             ToolName = "create_gear",
@@ -375,7 +378,9 @@ Build a safer revised plan.
                 ["teeth"] = Math.Max(8, teeth),
                 ["module"] = Math.Max(0.5, module),
                 ["face_width"] = Math.Max(2.0, faceWidth),
-                ["pressure_angle"] = 20.0
+                ["pressure_angle"] = Math.Clamp(pressureAngle, 10.0, 35.0),
+                ["bore_dia"] = Math.Max(0.5, boreDia),
+                ["material"] = "Mild Steel"
             }
         };
     }
@@ -384,6 +389,7 @@ Build a safer revised plan.
     {
         var length = ExtractDouble(input, @"length\s*(?:to|=)?\s*([0-9]*\.?[0-9]+)") ?? 100.0;
         var diameter = ExtractDouble(input, @"diameter\s*(?:to|=)?\s*([0-9]*\.?[0-9]+)") ?? 20.0;
+        var material = ExtractMaterial(input) ?? "Mild Steel";
 
         if (!RegexIsMatch(input, @"length\s*(?:to|=)?\s*([0-9]*\.?[0-9]+)"))
         {
@@ -395,13 +401,19 @@ Build a safer revised plan.
             assumptions.Add("Missing shaft diameter. Assumed diameter=20 mm.");
         }
 
+        if (ExtractMaterial(input) is null)
+        {
+            assumptions.Add("Missing shaft material. Assumed material=Mild Steel.");
+        }
+
         return new PlannedToolCall
         {
             ToolName = "create_shaft",
             Arguments = new Dictionary<string, object?>
             {
                 ["length"] = Math.Max(10.0, length),
-                ["diameter"] = Math.Max(2.0, diameter)
+                ["diameter"] = Math.Max(2.0, diameter),
+                ["material"] = material
             }
         };
     }
@@ -488,7 +500,7 @@ Build a safer revised plan.
     {
         var args = new Dictionary<string, object?>
         {
-            ["dimension"] = dimensionName,
+            ["param"] = dimensionName,
             ["value"] = value
         };
 
@@ -546,7 +558,7 @@ Build a safer revised plan.
                     }
 
                     if (TryGetDouble(call.Arguments, "value", out var valueModule) &&
-                        string.Equals(call.Arguments.GetValueOrDefault("dimension")?.ToString(), "module", StringComparison.OrdinalIgnoreCase))
+                        string.Equals(call.Arguments.GetValueOrDefault("param")?.ToString(), "module", StringComparison.OrdinalIgnoreCase))
                     {
                         call.Arguments["value"] = Math.Max(0.5, valueModule * 0.8);
                         repaired.Assumptions.Add("Retry adjustment: reduced requested module value.");
@@ -695,6 +707,26 @@ Build a safer revised plan.
         return int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
             ? value
             : null;
+    }
+
+    private static string? ExtractMaterial(string text)
+    {
+        if (RegexIsMatch(text, @"mild\s+steel"))
+        {
+            return "Mild Steel";
+        }
+
+        if (RegexIsMatch(text, @"carbon\s+steel"))
+        {
+            return "Carbon Steel";
+        }
+
+        if (RegexIsMatch(text, @"alloy\s+steel"))
+        {
+            return "Alloy Steel";
+        }
+
+        return null;
     }
 
     private static bool RegexIsMatch(string text, string pattern)

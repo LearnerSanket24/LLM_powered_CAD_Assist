@@ -1,0 +1,14 @@
+{
+  "name": "tessract-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Root workspace for CAD backend and AR web prototype",
+  "workspaces": [
+    "project"
+  ],
+  "scripts": {
+    "start": "npm --prefix project start",
+    "ar:start": "npm --prefix project start",
+    "ar:install": "npm --prefix project install"
+  }
+}

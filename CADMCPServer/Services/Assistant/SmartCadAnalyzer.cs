@@ -1,30 +1,45 @@
+using CADMCPServer.Configuration;
 using CADMCPServer.Models;
+using Microsoft.Extensions.Options;
 
 namespace CADMCPServer.Services.Assistant;
 
 public sealed class SmartCadAnalyzer : ISmartCadAnalyzer
 {
-    private static readonly IReadOnlyDictionary<int, double> LewisFormFactorByTeeth = new Dictionary<int, double>
-    {
-        [12] = 0.245,
-        [16] = 0.289,
-        [20] = 0.322,
-        [24] = 0.343,
-        [30] = 0.365,
-        [40] = 0.392,
-        [60] = 0.421,
-        [80] = 0.435,
-        [120] = 0.452
-    };
+    private readonly AnalysisSettings _settings;
+    private readonly IReadOnlyDictionary<string, double> _yieldStrengthByMaterialMpa;
+    private readonly IReadOnlyDictionary<int, double> _lewisFormFactorByTeeth;
 
-    private static readonly IReadOnlyDictionary<string, double> YieldStrengthByMaterialMpa = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+    public SmartCadAnalyzer(IOptions<AnalysisSettings> settings)
     {
-        ["Mild Steel"] = 250,
-        ["Medium Carbon Steel"] = 370,
-        ["20CrMnTi"] = 620,
-        ["Aluminium 6061"] = 276,
-        ["Nylon PA66"] = 80
-    };
+        _settings = settings.Value;
+
+        _yieldStrengthByMaterialMpa = (_settings.YieldStrengthByMaterialMpa is null || _settings.YieldStrengthByMaterialMpa.Count == 0)
+            ? new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Mild Steel"] = 210,
+                ["Medium Carbon Steel"] = 420,
+                ["Alloy Steel"] = 850,
+                ["Aluminium 6061-T6"] = 276,
+                ["Nylon PA66"] = 85
+            }
+            : new Dictionary<string, double>(_settings.YieldStrengthByMaterialMpa, StringComparer.OrdinalIgnoreCase);
+
+        _lewisFormFactorByTeeth = (_settings.LewisFormFactorByTeeth is null || _settings.LewisFormFactorByTeeth.Count == 0)
+            ? new Dictionary<int, double>
+            {
+                [12] = 0.245,
+                [16] = 0.289,
+                [20] = 0.322,
+                [24] = 0.343,
+                [30] = 0.365,
+                [40] = 0.392,
+                [60] = 0.421,
+                [80] = 0.435,
+                [120] = 0.452
+            }
+            : new Dictionary<int, double>(_settings.LewisFormFactorByTeeth);
+    }
 
     public SmartCadAnalysis Analyze(AnalyzeRequest request, ConversationContext context, IReadOnlyCollection<string> orchestrationAssumptions)
     {
@@ -33,7 +48,7 @@ public sealed class SmartCadAnalyzer : ISmartCadAnalyzer
         var metrics = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
         var material = ResolveMaterial(request.Material, assumptions);
-        var yieldStrengthMpa = YieldStrengthByMaterialMpa[material];
+        var yieldStrengthMpa = _yieldStrengthByMaterialMpa[material];
         metrics["yield_strength_mpa"] = yieldStrengthMpa;
 
         var componentType = ResolveComponentType(request.ComponentType, context.LastComponentType, assumptions);
@@ -185,9 +200,27 @@ public sealed class SmartCadAnalyzer : ISmartCadAnalyzer
         return string.Join(Environment.NewLine, sections);
     }
 
-    private static string ResolveMaterial(string? requestedMaterial, ICollection<string> assumptions)
+    private string ResolveMaterial(string? requestedMaterial, ICollection<string> assumptions)
     {
-        if (!string.IsNullOrWhiteSpace(requestedMaterial) && YieldStrengthByMaterialMpa.ContainsKey(requestedMaterial.Trim()))
+        if (string.Equals(requestedMaterial?.Trim(), "Steel", StringComparison.OrdinalIgnoreCase))
+        {
+            assumptions.Add("Material 'Steel' mapped to Mild Steel.");
+            return "Mild Steel";
+        }
+
+        if (string.Equals(requestedMaterial?.Trim(), "Carbon Steel", StringComparison.OrdinalIgnoreCase))
+        {
+            assumptions.Add("Material 'Carbon Steel' mapped to Medium Carbon Steel.");
+            return "Medium Carbon Steel";
+        }
+
+        if (string.Equals(requestedMaterial?.Trim(), "20CrMnTi", StringComparison.OrdinalIgnoreCase))
+        {
+            assumptions.Add("Material '20CrMnTi' mapped to Alloy Steel.");
+            return "Alloy Steel";
+        }
+
+        if (!string.IsNullOrWhiteSpace(requestedMaterial) && _yieldStrengthByMaterialMpa.ContainsKey(requestedMaterial.Trim()))
         {
             return requestedMaterial.Trim();
         }
@@ -225,30 +258,30 @@ public sealed class SmartCadAnalyzer : ISmartCadAnalyzer
         return "generic";
     }
 
-    private static double ResolveLewisFactor(int teethCount)
+    private double ResolveLewisFactor(int teethCount)
     {
         var boundedTeeth = Math.Max(12, teethCount);
-        var sorted = LewisFormFactorByTeeth.Keys.OrderBy(key => key).ToList();
+        var sorted = _lewisFormFactorByTeeth.Keys.OrderBy(key => key).ToList();
 
-        if (LewisFormFactorByTeeth.TryGetValue(boundedTeeth, out var exact))
+        if (_lewisFormFactorByTeeth.TryGetValue(boundedTeeth, out var exact))
         {
             return exact;
         }
 
         if (boundedTeeth <= sorted[0])
         {
-            return LewisFormFactorByTeeth[sorted[0]];
+            return _lewisFormFactorByTeeth[sorted[0]];
         }
 
         if (boundedTeeth >= sorted[^1])
         {
-            return LewisFormFactorByTeeth[sorted[^1]];
+            return _lewisFormFactorByTeeth[sorted[^1]];
         }
 
         var lower = sorted.Last(value => value < boundedTeeth);
         var upper = sorted.First(value => value > boundedTeeth);
-        var yLower = LewisFormFactorByTeeth[lower];
-        var yUpper = LewisFormFactorByTeeth[upper];
+        var yLower = _lewisFormFactorByTeeth[lower];
+        var yUpper = _lewisFormFactorByTeeth[upper];
         var t = (boundedTeeth - lower) / (double)(upper - lower);
         return yLower + ((yUpper - yLower) * t);
     }
@@ -275,15 +308,15 @@ public sealed class SmartCadAnalyzer : ISmartCadAnalyzer
         return fallback;
     }
 
-    private static string ApplySafetyFactorStatus(string currentStatus, double safetyFactor, ICollection<string> recommendations)
+    private string ApplySafetyFactorStatus(string currentStatus, double safetyFactor, ICollection<string> recommendations)
     {
-        if (safetyFactor < 1)
+        if (safetyFactor < _settings.SafetyFactorFailThreshold)
         {
             recommendations.Add("Increase section size, reduce load, or upgrade material; safety factor is below 1.0.");
             return Elevate(currentStatus, "FAIL");
         }
 
-        if (safetyFactor < 1.5)
+        if (safetyFactor < _settings.SafetyFactorWarningThreshold)
         {
             recommendations.Add("Target safety factor >= 1.5 by adjusting dimensions or material.");
             return Elevate(currentStatus, "WARNING");
@@ -292,9 +325,11 @@ public sealed class SmartCadAnalyzer : ISmartCadAnalyzer
         return currentStatus;
     }
 
-    private static string RunDfmChecks(GeometryInput geometry, string material, string status, ICollection<string> recommendations)
+    private string RunDfmChecks(GeometryInput geometry, string material, string status, ICollection<string> recommendations)
     {
-        var minWallThickness = material.Equals("Nylon PA66", StringComparison.OrdinalIgnoreCase) ? 3.0 : 2.0;
+        var minWallThickness = material.Contains("Nylon", StringComparison.OrdinalIgnoreCase)
+            ? _settings.MinWallThicknessInjectionMoldingMm
+            : _settings.MinWallThicknessMetalSinteringMm;
 
         if (geometry.WallThicknessMm.HasValue)
         {
@@ -307,10 +342,10 @@ public sealed class SmartCadAnalyzer : ISmartCadAnalyzer
 
         if (geometry.DraftAngleDeg.HasValue)
         {
-            if (geometry.DraftAngleDeg.Value < 1)
+            if (geometry.DraftAngleDeg.Value < _settings.MinDraftAngleDeg)
             {
                 status = Elevate(status, "WARNING");
-                recommendations.Add("Increase draft_angle_deg to >= 1.0 for easier manufacturing release.");
+                recommendations.Add($"Increase draft_angle_deg to >= {_settings.MinDraftAngleDeg:0.##} for easier manufacturing release.");
             }
         }
 
@@ -322,10 +357,10 @@ public sealed class SmartCadAnalyzer : ISmartCadAnalyzer
 
         if (geometry.ThreadPitchMm.HasValue)
         {
-            if (geometry.ThreadPitchMm.Value < 0.5 || geometry.ThreadPitchMm.Value > 6)
+            if (geometry.ThreadPitchMm.Value < _settings.MinThreadPitchMm || geometry.ThreadPitchMm.Value > _settings.MaxThreadPitchMm)
             {
                 status = Elevate(status, "WARNING");
-                recommendations.Add("Keep thread_pitch_mm within practical range 0.5 to 6.0 for production readiness.");
+                recommendations.Add($"Keep thread_pitch_mm within practical range {_settings.MinThreadPitchMm:0.##} to {_settings.MaxThreadPitchMm:0.##} for production readiness.");
             }
         }
 

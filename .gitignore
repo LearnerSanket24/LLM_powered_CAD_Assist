@@ -1,0 +1,22 @@
+node_modules/
+
+# Build artifacts
+bin/
+obj/
+dist/
+build/
+
+# Local runtime outputs
+outputs/
+CADMCPServer/outputs/
+
+# IDE/tooling
+.vs/
+*.user
+*.suo
+*.cache
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp

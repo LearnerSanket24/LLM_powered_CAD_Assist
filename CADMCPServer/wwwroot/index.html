@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LLM CAD Copilot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  </head>
+  <body>
+    <header class="shell header">
+      <h1>LLM CAD Copilot</h1>
+      <p>Natural language to CAD model + engineering analysis</p>
+    </header>
+
+    <main class="shell grid">
+      <section class="panel composer">
+        <h2>Prompt</h2>
+        <textarea id="promptInput" placeholder="Create a gear with 20 teeth, module 2, face width 20mm, bore 8mm"></textarea>
+        <div class="actions">
+          <button id="runButton">Generate Model</button>
+          <button id="sampleButton" class="secondary">Load Sample</button>
+        </div>
+        <p id="status" class="status">Ready.</p>
+      </section>
+
+      <section class="panel viewer">
+        <h2>3D View</h2>
+        <canvas id="viewerCanvas"></canvas>
+      </section>
+
+      <section class="panel analysis">
+        <h2>Analysis</h2>
+        <div id="analysisStatus" class="chip">STATUS: N/A</div>
+        <div id="metrics" class="kv-list"></div>
+        <h3>Recommendations</h3>
+        <ul id="recommendations"></ul>
+        <h3>Assumptions</h3>
+        <ul id="assumptions"></ul>
+      </section>
+
+      <section class="panel trace">
+        <h2>Execution Trace</h2>
+        <pre id="traceOutput">No calls yet.</pre>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

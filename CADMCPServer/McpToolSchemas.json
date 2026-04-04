@@ -1,0 +1,201 @@
+{
+  "version": "1.0.0",
+  "protocol": "mcp",
+  "tools": [
+    {
+      "name": "create_gear",
+      "description": "Create involute spur gear",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "teeth": { "type": "integer", "minimum": 8 },
+          "module": { "type": "number", "minimum": 0.25 },
+          "face_width": { "type": "number", "minimum": 1 },
+          "pressure_angle": { "type": "number", "default": 20 },
+          "bore_dia": { "type": "number", "minimum": 0.1 },
+          "material": { "type": "string", "default": "Mild Steel" },
+          "session_id": { "type": "string" }
+        },
+        "required": ["teeth", "module", "face_width", "bore_dia"]
+      }
+    },
+    {
+      "name": "create_shaft",
+      "description": "Create cylindrical shaft",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "length": { "type": "number", "minimum": 1 },
+          "diameter": { "type": "number", "minimum": 0.5 },
+          "material": { "type": "string" },
+          "session_id": { "type": "string" }
+        },
+        "required": ["length", "diameter", "material"]
+      }
+    },
+    {
+      "name": "create_bearing",
+      "description": "Create radial bearing ring",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "inner_diameter": { "type": "number", "minimum": 0.5 },
+          "inner_dia": { "type": "number", "minimum": 0.5 },
+          "outer_diameter": { "type": "number", "minimum": 1.0 },
+          "outer_dia": { "type": "number", "minimum": 1.0 },
+          "width": { "type": "number", "minimum": 0.5 },
+          "material": { "type": "string", "default": "Mild Steel" },
+          "session_id": { "type": "string" }
+        },
+        "required": ["width"]
+      }
+    },
+    {
+      "name": "modify_dim",
+      "description": "Modify existing model parameter",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string" },
+          "param": { "type": "string" },
+          "value": { "type": "number" },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id", "param", "value"]
+      }
+    },
+    {
+      "name": "add_fillet",
+      "description": "Add edge fillet",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string" },
+          "edge_id": { "type": "string" },
+          "radius": { "type": "number", "minimum": 0.01 },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id", "edge_id", "radius"]
+      }
+    },
+    {
+      "name": "add_chamfer",
+      "description": "Add edge chamfer",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string" },
+          "edge_id": { "type": "string" },
+          "distance": { "type": "number", "minimum": 0.01 },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id", "edge_id", "distance"]
+      }
+    },
+    {
+      "name": "get_volume",
+      "description": "Get model volume",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string" },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id"]
+      }
+    },
+    {
+      "name": "get_mass",
+      "description": "Get model mass for material",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string" },
+          "material": { "type": "string" },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id", "material"]
+      }
+    },
+    {
+      "name": "get_surface_area",
+      "description": "Get model surface area",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string" },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id"]
+      }
+    },
+    {
+      "name": "measure_clearance",
+      "description": "Measure assembly clearance",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id_a": { "type": "string" },
+          "model_id_b": { "type": "string" },
+          "center_distance_mm": { "type": "number", "minimum": 0.01 },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id_a", "model_id_b"]
+      }
+    },
+    {
+      "name": "check_interference",
+      "description": "Check assembly interference",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id_a": { "type": "string" },
+          "model_id_b": { "type": "string" },
+          "center_distance_mm": { "type": "number", "minimum": 0.01 },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id_a", "model_id_b"]
+      }
+    },
+    {
+      "name": "export_step",
+      "description": "Export model as STEP",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string" },
+          "file_path": { "type": "string" },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id", "file_path"]
+      }
+    },
+    {
+      "name": "export_stl",
+      "description": "Export model as STL",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string" },
+          "file_path": { "type": "string" },
+          "resolution": { "type": "string", "default": "medium" },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id", "file_path"]
+      }
+    },
+    {
+      "name": "render_viewport",
+      "description": "Render model viewport to image",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_id": { "type": "string" },
+          "angle": { "type": "string", "default": "isometric" },
+          "session_id": { "type": "string" }
+        },
+        "required": ["model_id"]
+      }
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.Json;
 using CADMCPServer.Models;
 using CADMCPServer.Services.Conversation;
 using CADMCPServer.Services.Mcp;
@@ -76,6 +77,7 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
         var consolidatedTrace = new List<ToolExecutionRecord>();
         var assumptions = new List<string>();
         ToolPlan plan = await _toolPlanner.BuildPlanAsync(input, context, request.Overrides, cancellationToken);
+        ApplyRequestPreferences(plan, request);
         assumptions.AddRange(plan.Assumptions);
 
         McpError? lastError = null;
@@ -91,6 +93,7 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
             {
                 var call = CloneCall(plan.ToolCalls[i]);
                 HydrateModelId(call, context.LastModelId);
+                HydrateSessionContext(call, context.SessionId);
 
                 var requestEnvelope = new McpToolRequest
                 {
@@ -105,7 +108,7 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
                     Sequence = consolidatedTrace.Count + attemptTrace.Count + 1,
                     ToolName = call.ToolName,
                     Success = mcpResponse.Success,
-                    RequestArguments = JsonObject.Create(call.Arguments),
+                    RequestArguments = JsonSerializer.SerializeToNode(call.Arguments) as JsonObject,
                     Result = mcpResponse.Result,
                     Error = mcpResponse.Error is null
                         ? null
@@ -167,6 +170,7 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
                     lastError.Code);
 
                 plan = await _toolPlanner.ReplanAfterErrorAsync(input, context, plan, lastError, attempt + 1, cancellationToken);
+                ApplyRequestPreferences(plan, request);
                 assumptions.AddRange(plan.Assumptions);
             }
         }
@@ -297,6 +301,35 @@ public sealed class AssistantOrchestrator : IAssistantOrchestrator
         if (!call.Arguments.ContainsKey("model_id") && !string.IsNullOrWhiteSpace(currentModelId))
         {
             call.Arguments["model_id"] = currentModelId;
+        }
+    }
+
+    private static void HydrateSessionContext(PlannedToolCall call, string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return;
+        }
+
+        if (!call.Arguments.ContainsKey("session_id"))
+        {
+            call.Arguments["session_id"] = sessionId;
+        }
+    }
+
+    private static void ApplyRequestPreferences(ToolPlan plan, AnalyzeRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Material))
+        {
+            return;
+        }
+
+        foreach (var call in plan.ToolCalls)
+        {
+            if (call.ToolName.StartsWith("create_", StringComparison.OrdinalIgnoreCase))
+            {
+                call.Arguments["material"] = request.Material.Trim();
+            }
         }
     }
 

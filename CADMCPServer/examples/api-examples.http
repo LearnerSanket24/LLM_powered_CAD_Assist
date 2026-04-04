@@ -1,0 +1,112 @@
+@baseUrl = http://localhost:5050
+
+### Health Check
+GET {{baseUrl}}/health
+
+### List MCP Tool Schemas
+GET {{baseUrl}}/mcp/schemas
+
+### Direct MCP Tool: create_gear
+POST {{baseUrl}}/mcp/tool
+Content-Type: application/json
+
+{
+  "tool_name": "create_gear",
+  "arguments": {
+    "teeth": 24,
+    "module": 2.5,
+    "face_width": 22,
+    "pressure_angle": 20,
+    "bore_dia": 10,
+    "material": "Medium Carbon Steel",
+    "session_id": "demo-session-1"
+  }
+}
+
+### Direct MCP Tool: create_bearing
+POST {{baseUrl}}/mcp/tool
+Content-Type: application/json
+
+{
+  "tool_name": "create_bearing",
+  "arguments": {
+    "inner_dia": 20,
+    "outer_dia": 47,
+    "width": 14,
+    "material": "Alloy Steel",
+    "session_id": "demo-session-1"
+  }
+}
+
+### Assistant End-to-End Analyze
+POST {{baseUrl}}/assistant/analyze
+Content-Type: application/json
+
+{
+  "sessionId": "demo-session-1",
+  "userInput": "Create a gear with 24 teeth, module 2.5, face width 22 mm and bore 10 mm",
+  "component_type": "gear",
+  "material": "Mild Steel",
+  "geometry_input": {
+    "module_mm": 2.5,
+    "teeth_count": 24,
+    "face_width_mm": 22,
+    "wall_thickness_mm": 2.6,
+    "draft_angle_deg": 1.5,
+    "has_undercut": false,
+    "thread_pitch_mm": 1.5,
+    "projected_area_mm2": 800
+  },
+  "load_input": {
+    "tangential_force_n": 1200,
+    "radial_force_n": 380,
+    "axial_force_n": 100,
+    "torque_nmm": 52000,
+    "applied_load_n": 1500
+  }
+}
+
+### Fetch Model JSON (replace model id)
+GET {{baseUrl}}/model/gear-123
+
+### Fetch Render Payload (replace model id)
+GET {{baseUrl}}/model/gear-123/render
+
+### Export STL (replace model id)
+POST {{baseUrl}}/mcp/tool
+Content-Type: application/json
+
+{
+  "tool_name": "export_stl",
+  "arguments": {
+    "model_id": "gear-123",
+    "file_path": "gear-demo.stl",
+    "session_id": "demo-session-1"
+  }
+}
+
+### Export STEP (replace model id)
+POST {{baseUrl}}/mcp/tool
+Content-Type: application/json
+
+{
+  "tool_name": "export_step",
+  "arguments": {
+    "model_id": "gear-123",
+    "file_path": "gear-demo.step",
+    "session_id": "demo-session-1"
+  }
+}
+
+### Render Viewport SVG (replace model id)
+POST {{baseUrl}}/mcp/tool
+Content-Type: application/json
+
+{
+  "tool_name": "render_viewport",
+  "arguments": {
+    "model_id": "gear-123",
+    "angle": "isometric",
+    "session_id": "demo-session-1"
+  }
+}
